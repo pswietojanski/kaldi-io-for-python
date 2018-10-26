@@ -6,6 +6,11 @@
 
 import numpy as np
 import sys, os, re, gzip, struct
+from scipy.io.wavfile import read as waveread
+from scipy.io.wavfile import write as wavewrite
+import soundfile as sf
+import io
+import tempfile
 
 #################################################
 # Adding kaldi tools to shell path,
@@ -13,7 +18,7 @@ import sys, os, re, gzip, struct
 # Select kaldi,
 if not 'KALDI_ROOT' in os.environ:
   # Default! To change run python with 'export KALDI_ROOT=/some_dir python'
-  os.environ['KALDI_ROOT']='/mnt/matylda5/iveselyk/Tools/kaldi-trunk'
+  os.environ['KALDI_ROOT']='/efs/mlteam/pswietojanski/kaldi'
 
 # Add kaldi tools to path,
 os.environ['PATH'] = os.popen('echo $KALDI_ROOT/src/bin:$KALDI_ROOT/tools/openfst/bin:$KALDI_ROOT/src/fstbin/:$KALDI_ROOT/src/gmmbin/:$KALDI_ROOT/src/featbin/:$KALDI_ROOT/src/lm/:$KALDI_ROOT/src/sgmmbin/:$KALDI_ROOT/src/sgmm2bin/:$KALDI_ROOT/src/fgmmbin/:$KALDI_ROOT/src/latbin/:$KALDI_ROOT/src/nnetbin:$KALDI_ROOT/src/nnet2bin:$KALDI_ROOT/src/nnet3bin:$KALDI_ROOT/src/online2bin/:$KALDI_ROOT/src/ivectorbin/:$KALDI_ROOT/src/lmbin/').readline().strip() + ':' + os.environ['PATH']
@@ -63,6 +68,7 @@ def open_or_fd(file, mode='rb'):
     fd = file
   # Eventually seek to offset,
   if offset != None: fd.seek(int(offset))
+  #print >> sys.stderr, "setting offset to", offset
   return fd
 
 # based on '/usr/local/lib/python3.4/os.py'
@@ -624,4 +630,58 @@ def read_segments_as_bool_vec(segments_file):
                    np.r_[np.c_[start - np.r_[0, end[:-1]], end-start].flat, 0])
   assert np.sum(end-start) == np.sum(frms)
   return frms
+
+
+# Wav reading capabilities
+def read_wav_scp(file_or_fd):
+  """ Reads wav.scp file, possibly with piping """
+  fd = open_or_fd(file_or_fd)
+  try:
+    for line in fd:
+      (key, rxfile) = line.decode().split(' ', 1)
+      wav = read_wav(rxfile.strip())
+      yield key, wav
+  finally:
+    if fd is not file_or_fd : fd.close()
+
+
+def read_wav_ark(file_or_fd):
+  fd = open_or_fd(file_or_fd)
+  try:
+    #print "entering look, fp is %s" % fd.tell()
+    key = read_key(fd)
+    #print "entering first %s, fp is %d" % (key, fd.tell())
+    while key:
+      wav = read_wav(fd)
+      yield key, wav
+      key = read_key(fd)
+      #print "reading next %s, fp is %s" % (key, fd.tell())
+  finally:
+    if fd is not file_or_fd : fd.close()
+
+
+def read_wav(file_or_fd):
+  fd = open_or_fd(file_or_fd)
+  try:
+    #isWav = fd.read(4).decode()
+    #if isWav != 'RIFF' :
+    #  print UnsupportedDataType("Wav RIFF tag not found, got %s." % isWav)
+    #print >> sys.stderr, "Fd is %s" % fd
+    #wav = waveread(fd) #scipy waveread does not increase file pointer position, after stuff is read!
+    wav = sf.read(fd)
+  finally:
+    if fd is not file_or_fd: fd.close()
+  return wav
+
+def write_wav(file_or_fd, w, samp_rate, key=''):
+  fd = open_or_fd(file_or_fd, mode='wb')
+  if sys.version_info[0] == 3: assert(fd.mode == 'wb')
+  try:
+    if key != '' : fd.write((key+' ').encode("latin1")) # ark-files have keys (utterance-id),
+    bio = io.BytesIO()
+    #temp buffer necessary, as sf makes calls to seek() and tell() which pipe does not support
+    sf.write(bio, w, samplerate=samp_rate, format='wav', subtype='PCM_16') 
+    fd.write(bio.getvalue())
+  finally:
+    if fd is not file_or_fd : fd.close()
 
