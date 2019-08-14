@@ -60,11 +60,11 @@ def open_or_fd(file, mode='rb'):
             (file,offset) = file.rsplit(':',1)
         # input/output pipe?
         if file[0] == '|' and file[-1] == '|':
-            fd = popen(file[:-1], 'rwb')
-        # input pipe?
+            fd = popen(file[1:-1], 'rwb') #custom
+        # input only pipe?
         elif file[-1] == '|':
             fd = popen(file[:-1], 'rb') # custom,
-        # output pipe?
+        # output only pipe?
         elif file[0] == '|':
             fd = popen(file[1:], 'wb') # custom,
         # is it gzipped?
@@ -118,7 +118,7 @@ def popen(cmd, mode="rb"):
         threading.Thread(target=cleanup,args=(proc,cmd)).start() # clean-up thread,
         return proc.stdin
     elif mode == "rwb":
-        proc = subprocess.Popen(cmd, shell=True, stdin=subprocess.PIPE, 
+        proc = subprocess.Popen(cmd, shell=True, stdin=subprocess.PIPE,
                             stdout=subprocess.PIPE, stderr=sys.stderr)
         threading.Thread(target=cleanup,args=(proc,cmd)).start() # clean-up thread,
         return proc.stdin, proc.stdout
@@ -134,7 +134,7 @@ def select_direction(fd, mode='r'):
         "You can only select 'r' or 'w'"
     )
     if isinstance(fd, tuple):
-        if mode == 'r': return fd[0] 
+        if mode == 'r': return fd[0]
         else: return fd[1]
     return fd
 
@@ -768,11 +768,12 @@ def write_wav(file_or_fd, wav_data, sr, key=''):
     fd = select_direction(fd, 'w')
     if sys.version_info[0] == 3: assert(fd.mode == 'wb')
     try:
-        if key != '' : fd.write((key+' ').encode("latin1")) # ark-files have keys (utterance-id),
+        if key != '':
+            fd.write((key+' ').encode("latin1")) # ark-files have keys (utterance-id),
         bio = io.BytesIO()
-        #temp buffer is necessary, as sf makes calls to 
+        #temp buffer is necessary, as sf makes calls to
         # seek() and tell() which pipe does not support
-        sf.write(bio, wav_data, samplerate=sr, format='wav', subtype='PCM_16') 
+        sf.write(bio, wav_data, samplerate=sr, format='wav', subtype='PCM_16')
         fd.write(bio.getvalue())
     finally:
         if fd is not file_or_fd : fd.close()
