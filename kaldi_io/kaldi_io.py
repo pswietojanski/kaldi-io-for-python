@@ -58,8 +58,11 @@ def open_or_fd(file, mode='rb'):
         # separate offset from filename (optional),
         if re.search(':[0-9]+$', file):
             (file,offset) = file.rsplit(':',1)
+        # input/output pipe?
+        if file[0] == '|' and file[-1] == '|':
+            fd = popen(file[:-1], 'rwb')
         # input pipe?
-        if file[-1] == '|':
+        elif file[-1] == '|':
             fd = popen(file[:-1], 'rb') # custom,
         # output pipe?
         elif file[0] == '|':
@@ -100,6 +103,11 @@ def popen(cmd, mode="rb"):
         proc = subprocess.Popen(cmd, shell=True, stdin=subprocess.PIPE, stderr=sys.stderr)
         threading.Thread(target=cleanup,args=(proc,cmd)).start() # clean-up thread,
         return io.TextIOWrapper(proc.stdin)
+    elif mode == "rw":
+        proc = subprocess.Popen(cmd, shell=True, stdin=subprocess.PIPE, 
+                            stdout=subprocess.PIPE, stderr=sys.stderr)
+        threading.Thread(target=cleanup,args=(proc,cmd)).start() # clean-up thread,
+        return io.TextIOWrapper(proc.stdin), io.TextIOWrapper(proc.stdout)
     # binary,
     elif mode == "rb":
         proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=sys.stderr)
@@ -109,15 +117,33 @@ def popen(cmd, mode="rb"):
         proc = subprocess.Popen(cmd, shell=True, stdin=subprocess.PIPE, stderr=sys.stderr)
         threading.Thread(target=cleanup,args=(proc,cmd)).start() # clean-up thread,
         return proc.stdin
+    elif mode == "rwb":
+        proc = subprocess.Popen(cmd, shell=True, stdin=subprocess.PIPE, 
+                            stdout=subprocess.PIPE, stderr=sys.stderr)
+        threading.Thread(target=cleanup,args=(proc,cmd)).start() # clean-up thread,
+        return proc.stdin, proc.stdout
     # sanity,
     else:
         raise ValueError("invalid mode %s" % mode)
+
+def select_direction(fd, mode='r'):
+    """For data flows that read and writes to pipe at the same time
+    this function picks which descriptor to use
+    """
+    assert mode in ['r', 'w'], (
+        "You can only select 'r' or 'w'"
+    )
+    if isinstance(fd, tuple):
+        if mode == 'r': return fd[0] 
+        else: return fd[1]
+    return fd
 
 
 def read_key(fd):
     """ [key] = read_key(fd)
      Read the utterance-key from the opened ark/stream descriptor 'fd'.
     """
+    fd = select_direction(fd, 'r')
     assert('b' in fd.mode), "Error: 'fd' was opened in text mode (in python3 use sys.stdin.buffer)"
 
     key = ''
@@ -148,6 +174,7 @@ def read_vec_int_ark(file_or_fd):
      d = { u:d for u,d in kaldi_io.read_vec_int_ark(file) }
     """
     fd = open_or_fd(file_or_fd)
+    fd = select_direction(fd, 'r')
     try:
         key = read_key(fd)
         while key:
@@ -162,6 +189,7 @@ def read_vec_int(file_or_fd):
      Read kaldi integer vector, ascii or binary input,
     """
     fd = open_or_fd(file_or_fd)
+    fd = select_direction(fd, 'r')
     binary = fd.read(2).decode()
     if binary == '\0B': # binary flag
         assert(fd.read(1).decode() == '\4'); # int-size
@@ -202,6 +230,7 @@ def write_vec_int(file_or_fd, v, key=''):
     assert(isinstance(v, np.ndarray))
     assert(v.dtype == np.int32)
     fd = open_or_fd(file_or_fd, mode='wb')
+    fd = select_direction(fd, 'w')
     if sys.version_info[0] == 3: assert(fd.mode == 'wb')
     try:
         if key != '' : fd.write((key+' ').encode("latin1")) # ark-files have keys (utterance-id),
@@ -234,6 +263,7 @@ def read_vec_flt_scp(file_or_fd):
      d = { key:mat for key,mat in kaldi_io.read_mat_scp(file) }
     """
     fd = open_or_fd(file_or_fd)
+    fd = select_direction(fd, 'r')
     try:
         for line in fd:
             (key,rxfile) = line.decode().split(' ')
@@ -251,6 +281,7 @@ def read_vec_flt_ark(file_or_fd):
      d = { u:d for u,d in kaldi_io.read_vec_flt_ark(file) }
     """
     fd = open_or_fd(file_or_fd)
+    fd = select_direction(fd, 'r')
     try:
         key = read_key(fd)
         while key:
@@ -265,6 +296,7 @@ def read_vec_flt(file_or_fd):
      Read kaldi float vector, ascii or binary input,
     """
     fd = open_or_fd(file_or_fd)
+    fd = select_direction(fd, 'r')
     binary = fd.read(2).decode()
     if binary == '\0B': # binary flag
         ans = _read_vec_flt_binary(fd)
@@ -316,6 +348,7 @@ def write_vec_flt(file_or_fd, v, key=''):
     """
     assert(isinstance(v, np.ndarray))
     fd = open_or_fd(file_or_fd, mode='wb')
+    fd = select_direction(fd, 'w')
     if sys.version_info[0] == 3: assert(fd.mode == 'wb')
     try:
         if key != '' : fd.write((key+' ').encode("latin1")) # ark-files have keys (utterance-id),
@@ -350,6 +383,7 @@ def read_mat_scp(file_or_fd):
      d = { key:mat for key,mat in kaldi_io.read_mat_scp(file) }
     """
     fd = open_or_fd(file_or_fd)
+    fd = select_direction(fd, 'r')
     try:
         for line in fd:
             (key,rxfile) = line.decode().split(' ')
@@ -371,6 +405,7 @@ def read_mat_ark(file_or_fd):
      d = { key:mat for key,mat in kaldi_io.read_mat_ark(file) }
     """
     fd = open_or_fd(file_or_fd)
+    fd = select_direction(fd, 'r')
     try:
         key = read_key(fd)
         while key:
@@ -386,6 +421,7 @@ def read_mat(file_or_fd):
      file_or_fd : file, gzipped file, pipe or opened file descriptor.
     """
     fd = open_or_fd(file_or_fd)
+    fd = select_direction(fd, 'r')
     try:
         binary = fd.read(2).decode()
         if binary == '\0B' :
@@ -487,6 +523,7 @@ def write_mat(file_or_fd, m, key=''):
     assert(isinstance(m, np.ndarray))
     assert(len(m.shape) == 2), "'m' has to be 2d matrix!"
     fd = open_or_fd(file_or_fd, mode='wb')
+    fd = select_direction(fd, 'w')
     if sys.version_info[0] == 3: assert(fd.mode == 'wb')
     try:
         if key != '' : fd.write((key+' ').encode("latin1")) # ark-files have keys (utterance-id),
@@ -543,6 +580,7 @@ def read_post_scp(file_or_fd):
      d = { key:post for key,post in kaldi_io.read_post_scp(file) }
     """
     fd = open_or_fd(file_or_fd)
+    fd = select_direction(fd, 'r')
     try:
         for line in fd:
             (key,rxfile) = line.decode().split(' ')
@@ -564,6 +602,7 @@ def read_post_ark(file_or_fd):
      d = { key:post for key,post in kaldi_io.read_post_ark(file) }
     """
     fd = open_or_fd(file_or_fd)
+    fd = select_direction(fd, 'r')
     try:
         key = read_key(fd)
         while key:
@@ -586,6 +625,7 @@ def read_post(file_or_fd):
      Returns vector of vectors of tuples.
     """
     fd = open_or_fd(file_or_fd)
+    fd = select_direction(fd, 'r')
     ans=[]
     binary = fd.read(2).decode(); assert(binary == '\0B'); # binary flag
     assert(fd.read(1).decode() == '\4'); # int-size
@@ -622,6 +662,7 @@ def read_cntime_ark(file_or_fd):
      d = { key:time for key,time in kaldi_io.read_post_ark(file) }
     """
     fd = open_or_fd(file_or_fd)
+    fd = select_direction(fd, 'r')
     try:
         key = read_key(fd)
         while key:
@@ -644,6 +685,8 @@ def read_cntime(file_or_fd):
      Returns vector of tuples.
     """
     fd = open_or_fd(file_or_fd)
+    fd = select_direction(fd, 'r')
+
     binary = fd.read(2).decode(); assert(binary == '\0B'); # assuming it's binary
 
     assert(fd.read(1).decode() == '\4'); # int-size
@@ -688,45 +731,49 @@ def read_segments_as_bool_vec(segments_file):
 # waveform manipulation capabilities
 
 def read_wav_scp(file_or_fd):
-  """ Reads wav.scp file, possibly with pipeing """
-  fd = open_or_fd(file_or_fd)
-  try:
-    for line in fd:
-      (key, rxfile) = line.decode().split(' ', 1)
-      wav = read_wav(rxfile.strip())
-      yield key, wav
-  finally:
-    if fd is not file_or_fd : fd.close()
+    """ Reads wav.scp file, possibly with pipeing """
+    fd = open_or_fd(file_or_fd)
+    fd = select_direction(fd, 'r')
+    try:
+      for line in fd:
+        (key, rxfile) = line.decode().split(' ', 1)
+        wav = read_wav(rxfile.strip())
+        yield key, wav
+    finally:
+        if fd is not file_or_fd : fd.close()
 
 def read_wav_ark(file_or_fd):
-  fd = open_or_fd(file_or_fd)
-  try:
-    key = read_key(fd)
-    while key:
-      wav = read_wav(fd)
-      yield key, wav
-      key = read_key(fd)
-  finally:
-    if fd is not file_or_fd : fd.close()
+    fd = open_or_fd(file_or_fd)
+    fd = select_direction(fd, 'r')
+    try:
+        key = read_key(fd)
+        while key:
+            wav = read_wav(fd)
+            yield key, wav
+        key = read_key(fd)
+    finally:
+        if fd is not file_or_fd : fd.close()
 
 def read_wav(file_or_fd):
-  fd = open_or_fd(file_or_fd)
-  try:
-    wav, sr = sf.read(fd)
-  finally:
-    if fd is not file_or_fd: fd.close()
-  return wav, sr
+    fd = open_or_fd(file_or_fd)
+    fd = select_direction(fd, 'r')
+    try:
+        wav, sr = sf.read(fd)
+    finally:
+        if fd is not file_or_fd: fd.close()
+    return wav, sr
 
 def write_wav(file_or_fd, wav_data, sr, key=''):
-  fd = open_or_fd(file_or_fd, mode='wb')
-  if sys.version_info[0] == 3: assert(fd.mode == 'wb')
-  try:
-    if key != '' : fd.write((key+' ').encode("latin1")) # ark-files have keys (utterance-id),
-    bio = io.BytesIO()
-    #temp buffer is necessary, as sf makes calls to 
-    # seek() and tell() which pipe does not support
-    sf.write(bio, wav_data, samplerate=sr, format='wav', subtype='PCM_16') 
-    fd.write(bio.getvalue())
-  finally:
-    if fd is not file_or_fd : fd.close()
+    fd = open_or_fd(file_or_fd, mode='wb')
+    fd = select_direction(fd, 'w')
+    if sys.version_info[0] == 3: assert(fd.mode == 'wb')
+    try:
+        if key != '' : fd.write((key+' ').encode("latin1")) # ark-files have keys (utterance-id),
+        bio = io.BytesIO()
+        #temp buffer is necessary, as sf makes calls to 
+        # seek() and tell() which pipe does not support
+        sf.write(bio, wav_data, samplerate=sr, format='wav', subtype='PCM_16') 
+        fd.write(bio.getvalue())
+    finally:
+        if fd is not file_or_fd : fd.close()
 
