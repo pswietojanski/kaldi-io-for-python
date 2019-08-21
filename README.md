@@ -35,6 +35,20 @@ with kaldi_io.open_or_fd(ark_scp_output,'wb') as f:
     kaldi_io.write_mat(f, mat, key=key)
 ```
 
+###### Writing from / and reading to pipe in a single command
+```python
+import kaldi_io
+import soundfile as sf
+cmd = "ark:| compute-mfcc-feats --config=/path/to/mfcc.conf ark:- ark:- |"
+fin, fout = kio.open_or_fd(cmd, 'wb') #note: mode here only affects actual files, not pipes
+wav, rate = sf.read('test.wav')
+kaldi_io.write_wav(fin, wav, rate, key='my_utt')
+fin.close() #so its clear nothing new arrives
+feats_ark = kaldi_io.read_mat_ark(fout)
+for k, feats in feats_ark:
+    print ('Extracted MFFC feats for utt {}, their shape is {}'.format(k, feats.shape))
+```
+
 
 #### Install
 - from pypi: `python -m pip --user install kaldi_io`

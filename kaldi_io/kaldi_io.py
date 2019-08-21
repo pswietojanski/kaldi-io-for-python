@@ -60,7 +60,7 @@ def open_or_fd(file, mode='rb'):
             (file,offset) = file.rsplit(':',1)
         # input/output pipe?
         if file[0] == '|' and file[-1] == '|':
-            fd = popen(file[:-1], 'rwb')
+            fd = popen(file[1:-1], 'rwb')
         # input pipe?
         elif file[-1] == '|':
             fd = popen(file[:-1], 'rb') # custom,
@@ -131,7 +131,7 @@ def select_direction(fd, mode='r'):
     this function picks which descriptor to use
     """
     assert mode in ['r', 'w'], (
-        "You can only select 'r' or 'w'"
+        "You can only select 'r' (input) or 'w' (output)"
     )
     if isinstance(fd, tuple):
         if mode == 'r': return fd[0] 
@@ -769,9 +769,9 @@ def write_wav(file_or_fd, wav_data, sr, key=''):
     if sys.version_info[0] == 3: assert(fd.mode == 'wb')
     try:
         if key != '' : fd.write((key+' ').encode("latin1")) # ark-files have keys (utterance-id),
+        # temp buffer is necessary, as soundfile makes calls to 
+        # seek() and tell() which pipes do not support
         bio = io.BytesIO()
-        #temp buffer is necessary, as sf makes calls to 
-        # seek() and tell() which pipe does not support
         sf.write(bio, wav_data, samplerate=sr, format='wav', subtype='PCM_16') 
         fd.write(bio.getvalue())
     finally:
