@@ -775,6 +775,7 @@ def write_wav(file_or_fd, wav_data, sr, key=''):
         # seek() and tell() which pipe does not support
         sf.write(bio, wav_data, samplerate=sr, format='wav', subtype='PCM_16')
         fd.write(bio.getvalue())
+        bio.close()
     finally:
         if fd is not file_or_fd : fd.close()
 
