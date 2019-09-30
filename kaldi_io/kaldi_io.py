@@ -750,7 +750,7 @@ def read_wav_ark(file_or_fd):
         while key:
             wav = read_wav(fd)
             yield key, wav
-        key = read_key(fd)
+            key = read_key(fd)
     finally:
         if fd is not file_or_fd : fd.close()
 
@@ -758,7 +758,8 @@ def read_wav(file_or_fd):
     fd = open_or_fd(file_or_fd)
     fd = select_direction(fd, 'r')
     try:
-        wav, sr = sf.read(fd)
+        bio = io.BytesIO(fd.read())
+        wav, sr = sf.read(bio)
     finally:
         if fd is not file_or_fd: fd.close()
     return wav, sr
