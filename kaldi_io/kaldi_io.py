@@ -748,9 +748,11 @@ def read_wav_ark(file_or_fd):
     try:
         key = read_key(fd)
         while key:
-            wav = read_wav(fd)
+            #print ('reading before {}'.format(key), file=sys.stderr)
+            wav = read_wav_tmp(fd)
             yield key, wav
             key = read_key(fd)
+            #print ('reading after {}'.format(key), file=sys.stderr) 
     finally:
         if fd is not file_or_fd : fd.close()
 
@@ -760,9 +762,20 @@ def read_wav(file_or_fd):
     try:
         bio = io.BytesIO(fd.read())
         wav, sr = sf.read(bio)
+        return wav, sr
     finally:
         if fd is not file_or_fd: fd.close()
-    return wav, sr
+
+def read_wav_tmp(file_or_fd):
+    fd = open_or_fd(file_or_fd)
+    fd = select_direction(fd, 'r')
+    import wave
+    try:
+       wav = wave.open(fd)
+       wav_data = wav.readframes(wav.getnframes())
+       return wav_data, wav.getframerate()
+    finally:
+        if fd is not file_or_fd: fd.close()
 
 def write_wav(file_or_fd, wav_data, sr, key=''):
     fd = open_or_fd(file_or_fd, mode='wb')
